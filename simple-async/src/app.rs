@@ -1,7 +1,8 @@
-use std::time::Duration;
+use std::{io::Stdout, time::Duration};
 
 use crossterm::event::{Event as CrosstermEvent, EventStream, KeyCode, KeyEventKind};
 use futures::{FutureExt, StreamExt};
+use ratatui::{prelude::CrosstermBackend, widgets::Paragraph, Terminal};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::{Error, Result};
@@ -21,12 +22,14 @@ pub struct App {
     tick_rate: f64,
     event_rx: UnboundedReceiver<Event>,
     event_tx: UnboundedSender<Event>,
+    terminal: Terminal<CrosstermBackend<Stdout>>,
 }
 
 impl App {
     pub fn new(frame_rate: f64, tick_rate: f64) -> Result<Self> {
         let (event_tx, event_rx) = unbounded_channel();
         let crossterm_event = EventStream::new();
+        let terminal = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
 
         Ok(Self {
             should_quit: false,
@@ -35,6 +38,7 @@ impl App {
             frame_rate,
             tick_rate,
             crossterm_event,
+            terminal,
         })
     }
 
@@ -77,6 +81,11 @@ impl App {
     fn handle_event(&mut self, event: &Event) -> Result<()> {
         match event {
             Event::Key(key) => self.handle_key_event(key)?,
+            Event::Frame => {
+                self.terminal.draw(|frame| {
+                    frame.render_widget(Paragraph::new("Hi"), frame.area());
+                })?;
+            }
             _ => {}
         }
 
