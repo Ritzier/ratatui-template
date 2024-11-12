@@ -1,3 +1,9 @@
 [template]
 cadrgo_generate_version = ">=0.20.0"
-sub_templates = ["simple", "simple-async", "complex-async", "simple-workspace"]
+sub_templates = [
+  "simple",
+  "simple-async",
+  "complex-async",
+  "complex-async-logs",
+  "simple-workspace",
+]
