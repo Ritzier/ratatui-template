@@ -1,4 +1,4 @@
-use b::{App, Result};
+use {{project-name}}::{App, Result};
 
 #[tokio::main]
 async fn main() -> Result<()> {
