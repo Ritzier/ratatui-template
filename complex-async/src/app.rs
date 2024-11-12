@@ -1,54 +1,54 @@
 use std::{io::Stdout, time::Duration};
 
-use crossterm::event::{Event as CrosstermEvent, EventStream, KeyCode, KeyEventKind};
+use crossterm::event::{
+    Event as CrosstermEvent, EventStream as CrosstermEventStream, KeyCode, KeyEventKind,
+};
 use futures::{FutureExt, StreamExt};
 use ratatui::{prelude::CrosstermBackend, Terminal};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
-use crate::{
-    screen_manager::{Renderable, ScreenManager},
-    Error, Result,
-};
+use crate::{error::Error, Result, ScreenManager};
 
-#[derive(Debug)]
 pub enum Event {
     Key(KeyCode),
     Tick,
-    Render,
+    Frame,
+    Quit,
 }
 
-#[derive(Debug)]
 pub struct App {
     should_quit: bool,
-    crossterm_event: EventStream,
+    crossterm_event: CrosstermEventStream,
     frame_rate: f64,
     tick_rate: f64,
-    event_rx: UnboundedReceiver<Event>,
     event_tx: UnboundedSender<Event>,
-    screen_manager: ScreenManager,
+    event_rx: UnboundedReceiver<Event>,
     terminal: Terminal<CrosstermBackend<Stdout>>,
+    screen_manager: ScreenManager,
 }
 
 impl App {
-    pub fn new(frame_rate: f64, tick_rate: f64) -> Result<Self> {
+    pub async fn new(frame_rate: f64, tick_rate: f64) -> Result<Self> {
         let (event_tx, event_rx) = unbounded_channel();
-        let crossterm_event = EventStream::new();
+        let screen_manager = ScreenManager::new(event_tx.clone()).await?;
         let terminal = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
 
         Ok(Self {
             should_quit: false,
-            event_rx,
-            event_tx,
+            crossterm_event: CrosstermEventStream::new(),
             frame_rate,
             tick_rate,
-            crossterm_event,
+            event_tx,
+            event_rx,
+            screen_manager,
             terminal,
-            screen_manager: ScreenManager::new(),
         })
     }
 
     pub async fn run(&mut self) -> Result<()> {
         startup()?;
+
+        //let mut terminal = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
 
         let frame_rate = Duration::from_secs_f64(1.0 / self.frame_rate);
         let tick_rate = Duration::from_secs_f64(1.0 / self.tick_rate);
@@ -57,45 +57,43 @@ impl App {
 
         while !self.should_quit {
             tokio::select! {
-
                 _tick = tick_interval.tick() => {
-                    self.event_tx.send(Event::Tick).unwrap();
+                    self.event_tx.send(Event::Tick)?;
                 }
-
                 _frame = frame_interval.tick() => {
-                    self.event_tx.send(Event::Render).unwrap();
+                    self.event_tx.send(Event::Frame)?;
                 }
-
-                Some(event) = self.event_rx.recv() => {
-                    match event {
-                        Event::Render => {
-                            self.terminal.draw(|frame| {
-                                self.screen_manager.draw(frame.area(),frame);
-                            })?;
-                        }
-                        Event::Key(key) => {
-                            if let Ok(Some(true)) = self.screen_manager.handle_key(&key) {
-                                self.should_quit=true
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-
                 event = self.crossterm_event.next().fuse() => {
-                    match event.ok_or(Error::Crossterm)?? {
+                    match event.ok_or(Error::CrosstermEvent)?? {
                         CrosstermEvent::Key(key) => {
                             if let KeyEventKind::Press = key.kind {
-                                self.event_tx.send(Event::Key(key.code))?
+                                self.event_tx.send(Event::Key(key.code))?;
                             }
                         }
                         _ => {}
                     }
                 }
+                Some(event) = self.event_rx.recv() => {
+                    self.handle_event(event).await?;
+                }
+
             }
         }
 
-        shutdown()?;
+        shutdown()
+    }
+
+    async fn handle_event(&mut self, event: Event) -> Result<()> {
+        match event {
+            Event::Key(key) => self.screen_manager.handle_key(key).await?,
+            Event::Frame => {
+                self.terminal.draw(|frame| {
+                    self.screen_manager.draw(frame.area(), frame);
+                })?;
+            }
+            Event::Quit => self.should_quit = true,
+            _ => {}
+        }
         Ok(())
     }
 }

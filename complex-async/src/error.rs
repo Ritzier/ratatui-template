@@ -1,13 +1,15 @@
 use thiserror::Error;
 
-use crate::app::Event;
+use crate::app;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Crossterm error")]
-    Crossterm,
+    #[error("CrosstermEvent error")]
+    CrosstermEvent,
+    #[error("JoinError")]
+    JoinError(#[from] tokio::task::JoinError),
     #[error("")]
-    EventSend(#[from] tokio::sync::mpsc::error::SendError<Event>),
+    SendError(#[from] tokio::sync::mpsc::error::SendError<app::Event>),
     #[error("IO: {0}")]
     IO(#[from] std::io::Error),
     #[error("Unexpected: {0}")]

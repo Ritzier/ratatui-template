@@ -1,93 +1,53 @@
 use crossterm::event::KeyCode;
 use ratatui::{layout::Rect, Frame};
+use tokio::sync::mpsc::UnboundedSender;
 
-mod tabone;
-mod tabtwo;
+use crate::{Event, Result};
+use main::Main;
 
-use crate::Result;
-use tabone::TabOne;
-use tabtwo::TabTwo;
+mod main;
 
-#[derive(Debug, PartialEq)]
-pub enum Command {
+enum ScreenEvent {
     Quit,
-    SwitchTab(Tab),
     None,
 }
 
-#[derive(Debug, Default, PartialEq)]
-pub enum Tab {
-    #[default]
-    One,
-    Two,
+enum ScreenState {
+    Main,
 }
 
-#[derive(Debug)]
 pub struct ScreenManager {
-    current_tab: Tab,
-
-    tab_one: TabOne,
-    tab_two: TabTwo,
+    screen_state: ScreenState,
+    command_tx: UnboundedSender<Event>,
+    main: Main,
 }
 
+/// Handle App key and UI
 impl ScreenManager {
-    pub fn new() -> Self {
-        Self {
-            current_tab: Tab::default(),
-            tab_one: TabOne {},
-            tab_two: TabTwo {},
-        }
+    pub async fn new(command_tx: UnboundedSender<Event>) -> Result<Self> {
+        Ok(Self {
+            screen_state: ScreenState::Main,
+            command_tx,
+            main: Main::new().await?,
+        })
     }
 
-    pub fn handle_key(&mut self, key: &KeyCode) -> Result<Option<bool>> {
-        match key {
-            KeyCode::Char('q') => Ok(Some(true)),
-            KeyCode::Tab => {
-                self.toggle_tab();
-                Ok(None)
-            }
-            KeyCode::Char('1') => {
-                self.current_tab = Tab::One;
-                Ok(None)
-            }
-            KeyCode::Char('2') => {
-                self.current_tab = Tab::Two;
-                Ok(None)
-            }
-            key => match self.current_tab {
-                Tab::One => {
-                    self.tab_one.handle_key(key)?;
-                    Ok(None)
-                }
-                Tab::Two => {
-                    self.tab_two.handle_key(key)?;
-                    Ok(None)
-                }
-            },
+    pub async fn handle_key(&mut self, keycode: KeyCode) -> Result<()> {
+        let screen_event = match self.screen_state {
+            ScreenState::Main => self.main.handle_key(keycode).await?,
+        };
+
+        match screen_event {
+            ScreenEvent::Quit => self.command_tx.send(Event::Quit)?,
+            ScreenEvent::None => {}
         }
+
+        Ok(())
     }
 
-    fn toggle_tab(&mut self) {
-        self.current_tab = match self.current_tab {
-            Tab::One => Tab::Two,
-            Tab::Two => Tab::One,
-        }
-    }
-}
-
-pub trait Renderable {
-    fn draw(&mut self, size: Rect, frame: &mut Frame);
-}
-
-pub trait Eventful {
-    fn handle_key(&mut self, key: &KeyCode) -> Result<Command>;
-}
-
-impl Renderable for ScreenManager {
-    fn draw(&mut self, size: Rect, frame: &mut Frame) {
-        match self.current_tab {
-            Tab::One => self.tab_one.draw(size, frame),
-            Tab::Two => self.tab_two.draw(size, frame),
+    pub fn draw(&mut self, area: Rect, frame: &mut Frame<'_>) {
+        match self.screen_state {
+            ScreenState::Main => self.main.draw(area, frame),
         }
     }
 }
