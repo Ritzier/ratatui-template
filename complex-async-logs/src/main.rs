@@ -1,4 +1,4 @@
-use b::{logger_init, App, Result};
+use {{project-name}}::{logger_init, App, Result};
 use tracing::info;
 
 #[tokio::main]
